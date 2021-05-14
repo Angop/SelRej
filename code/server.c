@@ -11,12 +11,15 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "cpe464.h"
 #include "gethostbyname.h"
 #include "networks.h"
 #include "safeUtil.h"
 #include "pdu.h"
 
-#define MAXBUF 80
+#define MAXBUF 1400
+#define MAX_PDU_LEN 1407
+#define DEBUG_FLAG 10
 
 void processClient(int socketNum);
 int checkArgs(int argc, char *argv[], float *errRate);
@@ -28,9 +31,9 @@ int main ( int argc, char *argv[]  )
 	float errRate = 0;
 
 	portNumber = checkArgs(argc, argv, &errRate);
-	printf("Error rate: %f\n", errRate);
 		
 	socketNum = udpServerSetup(portNumber);
+	sendErr_init(errRate, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_OFF);
 
 	processClient(socketNum);
 
@@ -45,6 +48,10 @@ void processClient(int socketNum)
 	char buffer[MAXBUF + 1];	  
 	struct sockaddr_in6 client;		
 	int clientAddrLen = sizeof(client);	
+	int pduLen = 0; 
+	uint8_t pduBuf[MAX_PDU_LEN];
+	uint16_t seqNum = 0;
+
 	
 	buffer[0] = '\0';
 	while (buffer[0] != '.')
@@ -53,12 +60,16 @@ void processClient(int socketNum)
 	
 		printf("Received message from client with ");
 		printIPInfo(&client);
-		printf(" Len: %d \'%s\'\n", dataLen, buffer);
+		// printf(" Len: %d \'%s\'\n", dataLen, buffer);
+		outputPDU((uint8_t*)buffer, dataLen);
 
 		// just for fun send back to client number of bytes received
 		sprintf(buffer, "bytes: %d", dataLen);
-		safeSendto(socketNum, buffer, strlen(buffer)+1, 0, (struct sockaddr *) & client, clientAddrLen);
+		pduLen = createPdu(pduBuf, seqNum, DEBUG_FLAG, (uint8_t*)buffer, strlen(buffer));
+		// outputPDU((uint8_t*)pduBuf, pduLen);
+		sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *) & client, clientAddrLen);
 
+		seqNum++;
 	}
 }
 

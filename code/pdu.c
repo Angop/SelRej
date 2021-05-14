@@ -38,9 +38,15 @@ void outputPDU(uint8_t * aPDU, int pduLength) {
     memcpy(&checksum, aPDU + 4, sizeof(uint16_t));
     memcpy(&flag, aPDU + 6, sizeof(uint8_t));
 
-    printf("Checksum: %s\n", in_cksum(aPDU, pduLength) ? "Invalid" : "Valid");
-    printf("SequenceNum: %ul\n", ntohl(seqNum));
-    printf("Flag: %ud\n", flag);
-    printf("Payload: %.*s\n", pduLength - HEADER_LEN, aPDU + HEADER_LEN);
-    printf("PayloadLen: %ud\n", pduLength);
+    if (in_cksum((unsigned short *)aPDU, pduLength) != 0) {
+        // packet is corrupted
+        printf("\tChecksum: Invalid\n");
+        return;
+    }
+
+    printf("\tChecksum: Valid\n");
+    printf("\tSequenceNum: %u\n", ntohl(seqNum));
+    printf("\tFlag: %u\n", flag);
+    printf("\tPayload: %.*s\n", pduLength - HEADER_LEN, aPDU + HEADER_LEN);
+    printf("\tPayloadLen: %u\n", pduLength);
 }
