@@ -14,6 +14,9 @@ CFLAGS += -D__LIBCPE464_
 
 all:  rcopy server
 
+windowTest: windowTest.c pdu.o window.o checksum.o
+	$(CC) $(CFLAGS) -o windowTest windowTest.c pdu.o window.o checksum.o
+
 rcopy: rcopy.c $(OBJS) 
 	$(CC) $(CFLAGS) -o rcopy rcopy.c $(OBJS) $(LIBS)
 
@@ -30,5 +33,5 @@ cleano:
 	rm -f *.o
 
 clean:
-	rm -f server rcopy *.o
+	rm -f server rcopy windowTest *.o
 

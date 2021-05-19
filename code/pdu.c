@@ -50,3 +50,40 @@ void outputPDU(uint8_t * aPDU, int pduLength) {
     printf("\tPayload: %.*s\n", pduLength - HEADER_LEN, aPDU + HEADER_LEN);
     printf("\tPayloadLen: %u\n", pduLength);
 }
+
+// below is for pdu struct
+
+int fillPDU(pdu packet, uint8_t * apdu, int pduLength) {
+    // fills given pdu struct with info from given pdu,
+    // returns 1 on success 0 for invalid pdu
+    if (in_cksum((unsigned short *)apdu, pduLength) != 0) {
+        // packet is corrupted
+        return 0;
+    }
+    memcpy(&packet->seqNum, apdu, sizeof(uint32_t));
+    packet->seqNum = ntohl(packet->seqNum);
+    memcpy(&packet->checksum, apdu + 4, sizeof(uint16_t));
+    memcpy(&packet->flag, apdu + 6, sizeof(uint8_t));
+
+    // TODO: handle RR and SREJ flags, or even remove them
+    packet->rr = 0;
+    packet->srej = 0;
+
+    if ((packet->payload = (uint8_t *)malloc(pduLength - HEADER_LEN)) == NULL) {
+        perror("malloc");
+        exit(EXIT_FAILURE);
+    }
+    memcpy(packet->payload, apdu + HEADER_LEN, pduLength - HEADER_LEN);
+    packet->payLen = pduLength - HEADER_LEN;
+
+    return 1;
+}
+
+void printPDUS(pdu packet) {
+    printf("Seq Num: %u pduSize: %d\n", packet->seqNum, packet->payLen + HEADER_LEN);
+}
+
+void freePDU(pdu packet) {
+    // frees pdu struct
+    free(packet->payload);
+}
