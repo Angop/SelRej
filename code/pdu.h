@@ -13,7 +13,7 @@ struct PduS {
     uint32_t rr;
     uint32_t srej;
     uint8_t * payload;
-    uint8_t payLen
+    uint8_t payLen;
 }__attribute__((packed));
 
 int fillPDU(pdu packet, uint8_t * apdu, int pduLength); // fills given pdu struct with info from given pdu
