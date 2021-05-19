@@ -59,7 +59,7 @@ void harderTest() {
             printWindow();
             printWindowMeta();
 
-            printf("Enter a RR: ");
+            printf("\nEnter number to RR: ");
             scanf("%d", &userRR);
 
             if (!rr(userRR)) {

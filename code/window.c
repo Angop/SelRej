@@ -30,7 +30,7 @@ void printWindowMeta();
 void printWindow();
 
 int initWindow(int windowSize) {
-    // initializes window for server, returns 0 for failure, 1 for success
+    // initializes window returns 0 for failure, 1 for success
     int i;
     if (windowSize < 1) {
         // invalid window size
@@ -74,22 +74,19 @@ int sent(pdu packet) {
 
 int rr(uint32_t seqNum) {
     // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
-    int newLower, curNum, lowNum, count, i = 0;
+    int newLower, curNum, lowNum, oldLowSeq, i = 0;
     if (win.current == -1 || seqNum  > (curNum=win.queue[win.current]->seqNum) + 1) {
         // rr higher than greatest seq number in window + 1
         return 0;
     }
     if (seqNum  < (lowNum=win.queue[win.lower]->seqNum)) {
         // rr less than lower bound's seqNum, no action needed
-        printf("INCORRECT, RR IS NOT LESS THAN LOWER SEQ!!\n");
         return 1;
     }
+
     newLower = seqNum % win.winSize;
-    count = newLower;
-    if (newLower == win.lower) {
-        count = newLower + win.winSize;
-    }
-    for (i=win.lower; i < count; i++) {
+    oldLowSeq = win.queue[win.lower]->seqNum;
+    for (i=oldLowSeq; i < seqNum; i++) {
         freePDU(win.queue[i % win.winSize]);
         free(win.queue[i % win.winSize]);
         win.queue[i % win.winSize] = NULL;
