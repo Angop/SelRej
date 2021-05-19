@@ -9,6 +9,7 @@ void harderTest();
 
 int main() {
     harderTest();
+    return 1;
 }
 
 void simpleTest() {

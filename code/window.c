@@ -62,11 +62,11 @@ int sent(pdu packet) {
         // window was full, packet should not have been sent
         return 0;
     }
-    win.current = (win.current + 1) % win.winSize;
-    if (packet->seqNum % win.winSize != win.current) {
+    if (packet->seqNum % win.winSize != (win.current + 1) % win.winSize) {
         // a sent packet must have been skipped
         return 0;
     }
+    win.current = (win.current + 1) % win.winSize;
     win.queue[win.current] = packet;
 
     return 1;
