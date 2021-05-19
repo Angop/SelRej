@@ -8,8 +8,8 @@ typedef struct Window * window;
 struct Window {
     pdu * queue; // points to the 0th index in an array of Pdu's
     int winSize; // size of the window
-    int lower; // the lowest unacked pdu's index
-    int upper; // upper bound of window
+    int lower;   // the lowest unacked pdu's index
+    int upper;   // upper bound of window
     int current; // index of the last sent packet
 }__attribute__((packed));
 
@@ -17,14 +17,14 @@ struct Window {
 struct Window win;
 
 
-int initWindow(); // initializes window for server, returns 0 for failure, 1 for success
-void freeWindow(); // frees the window and everything malloced inside
-int sent(pdu packet); // server sent this packet, return 1 on sucess, 0 on invalid send
-int rr(uint32_t seqNum); // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
+int initWindow();          // initializes window for server, returns 0 for failure, 1 for success
+void freeWindow();         // frees the window and everything malloced inside
+int sent(pdu packet);      // server sent this packet, return 1 on sucess, 0 on invalid send
+int rr(uint32_t seqNum);   // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
 pdu srej(uint32_t seqNum); // rcopy rejected this seqNum, return the pdu to resend or null if its out of the window
-pdu getLow(); // server needs the lowest unacked packet, return pdu or null if none are unacked
-int isFull(); // returns true on full window, else 0
-int isEmpty(); // returns true on empty window, else 0
+pdu getLow();              // server needs the lowest unacked packet, return pdu or null if none are unacked
+int isFull();              // returns true on full window
+int isEmpty();             // returns true on empty window
 
 void printWindowMeta();
 void printWindow();
