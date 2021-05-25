@@ -16,7 +16,7 @@ struct PduS {
     uint8_t payLen;
 }__attribute__((packed));
 
-int fillPDU(pdu packet, uint8_t * apdu, int pduLength); // fills given pdu struct with info from given pdu
+int interpPDU(pdu packet, uint8_t * apdu, int pduLength); // fills given pdu struct with info from given pdu
 void printPDUS(pdu packet);
 void freePDU(pdu packet); // frees pdu struct
 

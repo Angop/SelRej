@@ -53,7 +53,7 @@ void outputPDU(uint8_t * aPDU, int pduLength) {
 
 // below is for pdu struct
 
-int fillPDU(pdu packet, uint8_t * apdu, int pduLength) {
+int interpPDU(pdu packet, uint8_t * apdu, int pduLength) {
     // fills given pdu struct with info from given pdu,
     // returns 1 on success 0 for invalid pdu
     if (in_cksum((unsigned short *)apdu, pduLength) != 0) {
