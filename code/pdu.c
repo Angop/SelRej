@@ -4,7 +4,10 @@
 #include <string.h>
 #include <netinet/in.h>
 #include "checksum.h"
-#include "pdu.h"
+#ifndef PDUS
+	#define PDUS
+    #include "pdu.h"
+#endif
 
 /* Populates given buffer with a formatted PDU
  * seqNumber = 4 byte sequence number in network order

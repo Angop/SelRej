@@ -1,0 +1,5 @@
+
+#define SETUPRESP_FLAG 2
+#define DATA_FLAG 3
+#define INITIAL_FLAG 7
+#define INITIALRESP_FLAG 8

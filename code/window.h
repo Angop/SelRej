@@ -6,7 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <netinet/in.h>
-#include "pdu.h"
+#ifndef PDUS
+	#define PDUS
+    #include "pdu.h"
+#endif
 
 int initWindow();          // initializes window for server or rcopy, returns 0 for failure, 1 for success
 void freeWindow();         // frees the window and everything malloced inside
