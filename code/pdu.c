@@ -86,6 +86,11 @@ void printPDUS(pdu packet) {
     printf("Seq Num: %u pduSize: %d\n", packet->seqNum, packet->payLen + HEADER_LEN);
 }
 
+int recreatePDUS(pdu packet, uint8_t *pduBuf) {
+    // reconstructs a pdu struct into a literal buffer and sends it to specified destinatino
+    return createPdu(pduBuf, packet->seqNum, packet->flag, packet->payload, packet->payLen);
+}
+
 void freePDU(pdu packet) {
     // frees pdu struct
     free(packet->payload);

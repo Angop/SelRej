@@ -18,5 +18,6 @@ struct PduS {
 
 int interpPDU(pdu packet, uint8_t * apdu, int pduLength); // fills given pdu struct with info from given pdu
 void printPDUS(pdu packet);
+int recreatePDUS(pdu packet, uint8_t *pduBuf);
 void freePDU(pdu packet); // frees pdu struct
 

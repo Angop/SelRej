@@ -11,7 +11,8 @@ struct Window {
     int lower;           // the lowest unacked pdu's index
     int upper;           // upper bound of window
     int current;         // index of the last sent packet
-    uint32_t lastPacket; // FOR RCOPY ONLY last seqNum srej or recv
+    uint32_t lastSeq;    // FOR RCOPY ONLY last seqNum
+    uint32_t firstSeq;   // FOR RCOPY ONLY first seqNum
 }__attribute__((packed));
 
 // GLOBAL VARIABLE
@@ -69,7 +70,7 @@ void printWindow() {
 
 
 // SERVER RELATED FUNCTIONS
-int sent(pdu packet) {
+int serverSent(pdu packet) {
     // TODO SHOULD I MALLOC PACKET HERE? or assume it was malloced before added here?
     // server sent this packet, return 1 on sucess, 0 on invalid send
     if (isWindowFull()) {
@@ -148,7 +149,8 @@ int skip(uint32_t seqNum) {
         win.lower = seqNum % win.winSize;
         win.current = win.lower; // leaves a null space to indicate a skip
         win.upper = (win.lower + win.winSize - 1) % win.winSize;
-        win.lastPacket = seqNum;
+        win.lastSeq = seqNum;
+        win.firstSeq = seqNum;
         return 1;
     }
     if (isBufFull()) {
@@ -161,7 +163,7 @@ int skip(uint32_t seqNum) {
         return 0;
     }
     win.current = (win.current + 1) % win.winSize; // leaves a null space to indicate a skip
-    win.lastPacket = seqNum;
+    win.lastSeq = seqNum;
     return 1;
 }
 
@@ -199,7 +201,7 @@ int buffer(pdu packet) {
     if (lessIndex(win.current, newCur)) {
         // if new packet is the greatest in buffer, set as new current
         win.current = newCur;
-        win.lastPacket = packet->seqNum;
+        win.lastSeq = packet->seqNum;
     }
     return 1;
 }
@@ -210,11 +212,12 @@ pdu unbuffer() {
         return NULL;
     }
     pdu packet = win.queue[win.lower];
+    win.firstSeq = packet->seqNum;
     win.queue[win.lower] = NULL;
     if (win.current == win.lower) {
         // reset buffer if empty
         win.current = -1;
-        win.lastPacket = -1;
+        win.lastSeq = -1;
     }
     win.lower = (win.lower + 1) % win.winSize;
     win.upper = (win.upper + 1) % win.winSize;
@@ -223,7 +226,12 @@ pdu unbuffer() {
 
 uint32_t lastPacket() {
     // returns the last srej or recv packet number
-    return win.lastPacket;
+    return win.lastSeq;
+}
+
+uint32_t firstPacket() {
+    // returns the first srej or recv packet number
+    return win.firstSeq;
 }
 
 int isBufFull() {
