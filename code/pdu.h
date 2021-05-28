@@ -1,7 +1,7 @@
 #include <netinet/in.h>
 
 #define HEADER_LEN 7
-int createPdu(uint8_t *pduBuf, uint32_t seqNum, uint8_t flag, uint8_t *payload, uint8_t payLen);
+int createPdu(uint8_t *pduBuf, uint32_t seqNum, uint8_t flag, uint8_t *payload, uint16_t payLen);
 void outputPDU(uint8_t * aPDU, int pduLength);
 
 typedef struct PduS * pdu;
@@ -13,10 +13,10 @@ struct PduS {
     uint32_t rr;
     uint32_t srej;
     uint8_t * payload;
-    uint8_t payLen;
+    uint16_t payLen;
 }__attribute__((packed));
 
-int interpPDU(pdu packet, uint8_t * apdu, int pduLength); // fills given pdu struct with info from given pdu
+int interpPDU(pdu packet, uint8_t * apdu, uint16_t pduLength); // fills given pdu struct with info from given pdu
 void printPDUS(pdu packet);
 int recreatePDUS(pdu packet, uint8_t *pduBuf);
 void freePDU(pdu packet); // frees pdu struct

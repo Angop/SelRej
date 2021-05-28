@@ -18,7 +18,7 @@ void printWindow();
 
 // SERVER RELATED FUNCTIONS
 int serverSent(pdu packet);// server sent this packet, return 1 on sucess, 0 on invalid send
-int rr(uint32_t seqNum);   // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
+int recvRR(uint32_t seqNum);   // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
 pdu srej(uint32_t seqNum); // rcopy rejected this seqNum, return the pdu to resend or null if its out of the window
 pdu getLow();              // server needs the lowest unacked packet, return pdu or null if none are unacked
 int isWindowFull();        // returns true on full window

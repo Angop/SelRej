@@ -17,7 +17,7 @@
  * payLen = length of payload in bytes
  * returns lengeth of created PDU */
 
-int createPdu(uint8_t *pduBuf, uint32_t seqNum, uint8_t flag, uint8_t *payload, uint8_t payLen) {
+int createPdu(uint8_t *pduBuf, uint32_t seqNum, uint8_t flag, uint8_t *payload, uint16_t payLen) {
     uint16_t checksum = 0;
     seqNum = htonl(seqNum);
 
@@ -56,7 +56,7 @@ void outputPDU(uint8_t * aPDU, int pduLength) {
 
 // below is for pdu struct
 
-int interpPDU(pdu packet, uint8_t * apdu, int pduLength) {
+int interpPDU(pdu packet, uint8_t * apdu, uint16_t pduLength) {
     // fills given pdu struct with info from given pdu,
     // returns 1 on success 0 for invalid pdu
     if (in_cksum((unsigned short *)apdu, pduLength) != 0) {

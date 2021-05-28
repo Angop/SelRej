@@ -48,8 +48,8 @@ void freeWindow() {
 }
 
 void printWindowMeta() {
-    printf("Server Window - Window Size: %d, Lower: %d, Upper: %d, Current: %d\n",
-        win.winSize, win.lower, win.upper, win.current);
+    printf("Server Window - Window Size: %d, Lower: %d, Upper: %d, Current: %d LastSeq: %d firstSeq: %d\n",
+        win.winSize, win.lower, win.upper, win.current, win.lastSeq, win.firstSeq);
 }
 
 void printWindow() {
@@ -87,7 +87,7 @@ int serverSent(pdu packet) {
     return 1;
 }
 
-int rr(uint32_t seqNum) {
+int recvRR(uint32_t seqNum) {
     // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
     int newLower, curNum, lowNum, oldLowSeq, i = 0;
     if (win.current == -1 || seqNum  > (curNum=win.queue[win.current]->seqNum) + 1) {
@@ -190,6 +190,7 @@ int buffer(pdu packet) {
         if (packet->seqNum == win.queue[newCur]->seqNum) {
             // same packet, take newer one
             // TODO: probably free older version??
+            freePDU(win.queue[newCur]);
             win.queue[newCur] = packet;
             return 1;
         }
@@ -212,12 +213,11 @@ pdu unbuffer() {
         return NULL;
     }
     pdu packet = win.queue[win.lower];
-    win.firstSeq = packet->seqNum;
+    win.firstSeq = packet->seqNum + 1;
     win.queue[win.lower] = NULL;
     if (win.current == win.lower) {
         // reset buffer if empty
         win.current = -1;
-        win.lastSeq = -1;
     }
     win.lower = (win.lower + 1) % win.winSize;
     win.upper = (win.upper + 1) % win.winSize;

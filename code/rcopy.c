@@ -32,35 +32,38 @@
 #define MAX_PDU_LEN 1407
 #define DEBUG_FLAG 10
 
+int sockNum = 0;
+struct sockaddr_in6 serverS;		// Supports 4 and 6 but requires IPv6 struct
 
-void handleConnection(int socketNum, struct sockaddr_in6 * server, char *from, char *to, uint32_t winSize, uint16_t bufSize);
-FILE *openOutput(char *to, int socketNum);
-void initExchange(int socketNum, struct sockaddr_in6 * server, char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
-void getInitialResp(int socketNum, struct sockaddr_in6 * server, char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
-void ackInitialResp(int socketNum, struct sockaddr_in6 * server, pdu packet);
-void recvDataLoop(int socketNum, struct sockaddr_in6 * server, pdu packet, FILE *output, uint16_t bufSize);
+
+void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize);
+FILE *openOutput(char *to);
+void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
+void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
+void ackInitialResp(pdu packet);
+void recvDataLoop(pdu packet, FILE *output, uint16_t bufSize);
 
 // recvDataLoop helpers
-int recvPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint16_t bufSize);
-uint8_t processPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
-uint8_t processEof();
-uint8_t processDataPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
-uint8_t handleSrej(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
-void sendRR(int socketNum, struct sockaddr_in6 * server, uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize);
-void sendSrejs(int socketNum, struct sockaddr_in6 * server, uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq);
-uint8_t processWaitingPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE *output);
-void resendSrej(int socketNum, struct sockaddr_in6 * server, uint32_t *mySeq);
-void unbufferSrej(FILE *output);
+int recvPacket(pdu packet, uint16_t bufSize);
+uint8_t processPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
+uint8_t processEof(uint32_t mySeq);
+uint8_t processDataPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
+void writeData(uint8_t *data, uint16_t dataLen, FILE *output);
+uint8_t handleSrej(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
+void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize);
+void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq);
+uint8_t processWaitingPacket(pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE *output);
+void resendSrej(uint32_t *mySeq);
+void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize);
+int bufferPacket(pdu packet);
 
 int checkArgs(int argc, char * argv[]);
 
-void testConnection(int socketNum, struct sockaddr_in6 * server);
+void testConnection();
 int readFromStdin(char * buffer);
 
 
 int main (int argc, char *argv[]) {
-	int socketNum = 0;				
-	struct sockaddr_in6 server;		// Supports 4 and 6 but requires IPv6 struct
 	int portNumber = checkArgs(argc, argv);
 	char *from = argv[1]; // CHECK FOR EXCESSIVELY LONG FILENAMES TODO
 	char *to = argv[2];
@@ -68,73 +71,69 @@ int main (int argc, char *argv[]) {
 	uint16_t bufferSize = atoi(argv[4]); // TODO change to strtol and strtof
 	float errRate = atof(argv[5]);
 
-	printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate);
+	printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate); //dd
 	
 	sendErr_init(errRate, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_OFF);
 	
-	socketNum = setupUdpClientToServer(&server, argv[6], portNumber);
+	sockNum = setupUdpClientToServer(&serverS, argv[6], portNumber);
 	
 	// talkToServer(socketNum, &server);
-	handleConnection(socketNum, &server, from, to, windowSize, bufferSize);
+	handleConnection(from, to, windowSize, bufferSize);
 	
-	close(socketNum);
+	close(sockNum);
 
 	return 0;
 }
 
-void handleConnection(int socketNum, struct sockaddr_in6 * server, char *from, char *to, uint32_t winSize, uint16_t bufSize) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize) {
 	// establish connection: send filename/bufsize/winsize, recv data
 	struct PduS packet;
 	// open output file
-	FILE *output = openOutput(to, socketNum);
+	FILE *output = openOutput(to);
 
 	// send initial packet
 	setupPollSet();
-	addToPollSet(socketNum);
-	initExchange(socketNum, server, from, winSize, bufSize, &packet);
+	addToPollSet(sockNum);
+	initExchange(from, winSize, bufSize, &packet);
 
 	// TODO: close and reopen socket to switch to server child?
 
 	// recieve data packets
 	if (initWindow(winSize)) {
-		recvDataLoop(socketNum, server, &packet, output, bufSize);
+		recvDataLoop(&packet, output, bufSize);
 	}
 
 	// cleanup
 	fclose(output); // should I check the return value? dd
 }
 
-FILE *openOutput(char *to, int socketNum) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+FILE *openOutput(char *to) {
 	FILE *out = fopen(to, "w");
 	if (out == NULL) {
 		printf("Invalid output file provided\n");
-		close(socketNum);
+		close(sockNum);
 		perror("open");
 		exit(EXIT_FAILURE);
 	}
 	return out;
 }
 
-void initExchange(int socketNum, struct sockaddr_in6 * server, char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 	// TODO
 	struct PduS respPacket;
-	getInitialResp(socketNum, server, from, winSize, bufSize, &respPacket);
+	getInitialResp(from, winSize, bufSize, &respPacket);
 
 	if (respPacket.payload[0] == 0) {
 		// bad filename
 		printf("Invalid input file provided\n");
-		close(socketNum);
+		close(sockNum);
 		exit(EXIT_SUCCESS); // user error, so I consider it a success
 	}
 
-	ackInitialResp(socketNum, server, packet);
+	ackInitialResp(packet);
 }
 
-void getInitialResp(int socketNum, struct sockaddr_in6 * server, char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 	// handles initial filename/buf/win exchange and recieves a response
 	// TODO: double check all len maxes
 	uint8_t payLoad[MAX_PDU_LEN];
@@ -156,11 +155,11 @@ void getInitialResp(int socketNum, struct sockaddr_in6 * server, char *from, uin
 
 	do {
 		// send filename/winsize/buffsize packet
-		sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		
 		// wait for valid response
 		if (pollCall(1000) != -1) {
-			respLen = safeRecvfrom(socketNum, respBuf, MAXBUF, 0, (struct sockaddr *) server, &serverAddrLen);
+			respLen = safeRecvfrom(sockNum, respBuf, MAXBUF, 0, (struct sockaddr *) &serverS, &serverAddrLen);
 		}
 		count++;
 		// TODO: close and reopen socket to switch to server child?
@@ -169,14 +168,13 @@ void getInitialResp(int socketNum, struct sockaddr_in6 * server, char *from, uin
 	if (count >= 10) {
 		// timed out
 		fprintf(stderr, "Server timed out\n");
-		close(socketNum);
+		close(sockNum);
 		exit(EXIT_FAILURE);
 	}
 	// packet is not corrupt and the flag is expected
 }
 
-void ackInitialResp(int socketNum, struct sockaddr_in6 * server, pdu packet) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void ackInitialResp(pdu packet) {
 	// acknowledges server response and waits for their ack
 	// if rcopy recv data packet, pass it along to next function
 	uint16_t pduLen = 0; 
@@ -190,11 +188,11 @@ void ackInitialResp(int socketNum, struct sockaddr_in6 * server, pdu packet) {
 
 	do {
 		// send filename/winsize/buffsize packet
-		sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		
 		// wait for valid response
 		if (pollCall(1000) != -1) {
-			respLen = safeRecvfrom(socketNum, respBuf, MAXBUF, 0, (struct sockaddr *) server, &serverAddrLen);
+			respLen = safeRecvfrom(sockNum, respBuf, MAXBUF, 0, (struct sockaddr *) &serverS, &serverAddrLen);
 		}
 		count++;
 	} while ((interpPDU(packet, respBuf, respLen) == 0 || !(packet->flag == SETUPRESP_FLAG || packet->flag == DATA_FLAG)) && count < 10);
@@ -202,7 +200,7 @@ void ackInitialResp(int socketNum, struct sockaddr_in6 * server, pdu packet) {
 	if (count >= 10) {
 		// timed out
 		fprintf(stderr, "Server timed out\n");
-		close(socketNum);
+		close(sockNum);
 		exit(EXIT_FAILURE);
 	}
 	if (packet->flag == SETUPRESP_FLAG) {
@@ -211,8 +209,7 @@ void ackInitialResp(int socketNum, struct sockaddr_in6 * server, pdu packet) {
 	}
 }
 
-void recvDataLoop(int socketNum, struct sockaddr_in6 * server, pdu lastPacket, FILE *output, uint16_t bufSize) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void recvDataLoop(pdu lastPacket, FILE *output, uint16_t bufSize) {
 	// TODO
 	uint8_t lastFlag = 0;
 	int pollRes = 0;
@@ -220,106 +217,107 @@ void recvDataLoop(int socketNum, struct sockaddr_in6 * server, pdu lastPacket, F
 	uint32_t expectedSeq = 0, mySeq = 0;
 
 	// handle the last packet
-	processPacket(socketNum, server, lastPacket, &expectedSeq, &mySeq, bufSize, output);
+	processPacket(lastPacket, &expectedSeq, &mySeq, bufSize, output);
 	lastFlag = lastPacket->flag;
 
 	// handle each packet that arrives
 	while (lastFlag != EOF_FLAG && (pollRes=pollCall(10000)) != -1) {
-		if (recvPacket(socketNum, server, (pdu)&packet, bufSize)) {
-			lastFlag = processPacket(socketNum, server, (pdu)&packet, &expectedSeq, &mySeq, bufSize, output);
+		if (recvPacket((pdu)&packet, bufSize)) {
+			lastFlag = processPacket((pdu)&packet, &expectedSeq, &mySeq, bufSize, output);
 		}
 	}
 	if (pollRes == -1) {
 		// timed out
 		fprintf(stderr, "Server timed out\n");
-		close(socketNum);
+		close(sockNum);
 		fclose(output);
 		exit(EXIT_FAILURE);
 	}
 }
 
-int recvPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint16_t bufSize) {
+int recvPacket(pdu packet, uint16_t bufSize) {
 	// recieves a packet on 
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	uint16_t pduLen = 0; 
 	uint8_t pduBuf[bufSize + HEADER_LEN];
 
-	printf("\t\tsocketNum: %d recvPacket\n", socketNum); // dedd
-	pduLen = safeRecvfrom(socketNum, pduBuf, bufSize + HEADER_LEN, 0, (struct sockaddr *) server, &serverAddrLen);
+	pduLen = safeRecvfrom(sockNum, pduBuf, bufSize + HEADER_LEN, 0, (struct sockaddr *) &serverS, &serverAddrLen);
 	return interpPDU(packet, pduBuf, pduLen);
 }
 
-uint8_t processPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+uint8_t processPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// processes any recieved packet in the data transfer sequence. Updates sequence pointers
 	if (packet->flag == DATA_FLAG) {
-		return processDataPacket(socketNum, server, packet, expectedSeq, mySeq, bufSize, output);
+		return processDataPacket(packet, expectedSeq, mySeq, bufSize, output);
 	}
 	if (packet->flag == EOF_FLAG) {
-		processEof(socketNum, server, *mySeq);
+		processEof(*mySeq);
 		return EOF_FLAG;
 	}
 	return packet->flag;
 }
 
-uint8_t processEof(int socketNum, struct sockaddr_in6 * server, uint32_t mySeq) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+uint8_t processEof(uint32_t mySeq) {
 	// sends a eof ack
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int pduLen = 0;
 	uint8_t pduBuf[HEADER_LEN];
 
 	pduLen = createPdu(pduBuf, mySeq, ACKEOF_FLAG, NULL, 0);
-	sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+	sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 
 	return EOF_FLAG;
 }
 
-uint8_t processDataPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+uint8_t processDataPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// processes a data packet, handles sending RRs and SREJs
 	if (packet->seqNum > *expectedSeq) {
 		// seqNum is higher than expected
-		return handleSrej(socketNum, server, packet, expectedSeq, mySeq, bufSize, output);
+		return handleSrej(packet, expectedSeq, mySeq, bufSize, output);
 	}
 	else if (packet->seqNum == *expectedSeq) {
 		// seqNum is expected -> send new RR
-		fwrite(packet->payload, 1, packet->payLen, output);
+		printf("Norm Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
+		writeData(packet->payload, packet->payLen, output);
 		(*expectedSeq)++;
-		sendRR(socketNum, server, *expectedSeq, mySeq, bufSize);
+		sendRR(*expectedSeq, mySeq, bufSize);
 		return DATA_FLAG;
 	}
 	// seqNum is lower than expected -> send last RR
-	sendRR(socketNum, server, *expectedSeq, mySeq, bufSize);
+	sendRR(*expectedSeq, mySeq, bufSize);
 	return DATA_FLAG;
 }
 
-uint8_t handleSrej(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
-	printf("\t\tsocketNum: %d handleSrej\n", socketNum); // dedd
+void writeData(uint8_t *data, uint16_t dataLen, FILE *output) {
+	uint16_t bytesWritten = fwrite(data, 1, dataLen, output);
+	printf(" ~~ wrote %d bytes\n", bytesWritten);
+}
+
+uint8_t handleSrej(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// TODO
 	// sends SREJ(s) and waits on missing packets
 	int pollRes = 0;
 	uint8_t lastFlag = DATA_FLAG;
 
-	printf("SREJ TIME ~~~~~~~~~~~~~~~~~~~\n");
-	sendSrejs(socketNum, server, *expectedSeq, packet->seqNum, mySeq);
-	if (!buffer(packet)) {
+	// printf("SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
+	sendSrejs(*expectedSeq, packet->seqNum, mySeq);
+	if (!bufferPacket(packet)) {
 		fprintf(stderr, "Buffer error\n");
-		close(socketNum);
+		close(sockNum);
 		fclose(output);
 		exit(EXIT_FAILURE);
 	}
-	printf("\tPacket: %d buffered\n", packet->seqNum);
+	// printf("\tPacket: %d buffered\n", packet->seqNum); //dd
 
 	while (!isBufEmpty() && (pollRes=pollCall(10000)) != -1) {
-		if (recvPacket(socketNum, server, (pdu)&packet, bufSize)) {
-			lastFlag = processWaitingPacket(socketNum, server, (pdu)&packet, mySeq, bufSize, output);
+		if (recvPacket((pdu)&packet, bufSize)) {
+			lastFlag = processWaitingPacket((pdu)&packet, mySeq, bufSize, output);
 		}
 	}
 	if (pollRes == -1) {
 		// timed out
 		fprintf(stderr, "Server timed out\n");
-		close(socketNum);
+		close(sockNum);
 		fclose(output);
 		exit(EXIT_FAILURE);
 	}
@@ -327,8 +325,7 @@ uint8_t handleSrej(int socketNum, struct sockaddr_in6 * server, pdu packet, uint
 	return lastFlag;
 }
 
-void sendRR(int socketNum, struct sockaddr_in6 * server, uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize) {
 	// sends RR readySeq to server
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int pduLen = 0;
@@ -336,12 +333,11 @@ void sendRR(int socketNum, struct sockaddr_in6 * server, uint32_t readySeq, uint
 
 	readySeq = htonl(readySeq);
 	pduLen = createPdu(pduBuf, *mySeq, RR_FLAG, (uint8_t*)(&readySeq), sizeof(uint32_t));
-	sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+	sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 	(*mySeq)++;
 }
 
-void sendSrejs(int socketNum, struct sockaddr_in6 * server, uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
-	printf("\t\tsocketNum: %d sendSrejs\n", socketNum); // dedd
+void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
 	// sends selective rejects for each missing packet and skips in buffer
 	// TODO
 	int pduLen = 0;
@@ -351,52 +347,52 @@ void sendSrejs(int socketNum, struct sockaddr_in6 * server, uint32_t expectedSeq
 
 	for (i=expectedSeq; i < recvSeq; i++) {
 		// notify buffer of each missing seqNum
-		printf("\tSKIP: %d\n", i);
+		// printf("\tSKIP: %d\n", i); //dd
 		skip(i);
 		i = htonl(i);
 		pduLen = createPdu(pduBuf, *mySeq, SREJ_FLAG, (uint8_t*)&i, sizeof(uint32_t));
-		sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		(*mySeq)++;
 		i = ntohl(i);
 	}
 }
 
-uint8_t processWaitingPacket(int socketNum, struct sockaddr_in6 * server, pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
-	printf("\t\tsocketNum: %d processWaitingPacket\n", socketNum); // dedd
+uint8_t processWaitingPacket(pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// Processes data packets while waiting on a SREJ packet
 	// TODO
 	int bufRet = 0;
 	if (packet->flag != DATA_FLAG) {
 		return packet->flag;
 	}
-	uint32_t expectedSeq = lastPacket();
+	uint32_t expectedSeq = lastPacket() + 1;
 	if (packet->seqNum > expectedSeq) {
 		// seqNum is higher than expected
-		sendSrejs(socketNum, server, expectedSeq, packet->seqNum, mySeq);
+		sendSrejs(expectedSeq, packet->seqNum, mySeq);
 	}
-	else if (packet->seqNum == expectedSeq) {
-		// seqNum is expected -> send new RR
-		bufRet = buffer(packet);
-		printf("\tPacket: %d buffered\n", packet->seqNum);
+
+	if (packet->seqNum >= firstPacket()) {
+		// seqNum is in expected range (or greater than expected and already SREJed) -> buffer it
+		bufRet = bufferPacket(packet);
+		// printf("\tPacket: %d buffered Ret: %d\n", packet->seqNum, bufRet); //dd
 		if (bufRet == 0) {
 			fprintf(stderr, "Buffer error\n");
-			close(socketNum);
+			close(sockNum);
 			fclose(output);
 			exit(EXIT_FAILURE);
 		}
 		else if (bufRet == 2) {
-			unbufferSrej(output);
+			unbufferSrej(output, mySeq, bufSize);
 		}
 	}
-	// seqNum is lower than expected -> send last RR
 	else {
-		resendSrej(socketNum, server, mySeq);
+		// seqNum is lower than expected -> send last RR and SREJ
+		sendRR(firstPacket(), mySeq, bufSize);
+		resendSrej(mySeq);
 	}
 	return DATA_FLAG;
 }
 
-void resendSrej(int socketNum, struct sockaddr_in6 * server, uint32_t *mySeq) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+void resendSrej(uint32_t *mySeq) {
 	// resend the lowest SREJ packet
 	uint32_t srejSeq = htonl(firstPacket());
 	int serverAddrLen = sizeof(struct sockaddr_in6);
@@ -404,20 +400,34 @@ void resendSrej(int socketNum, struct sockaddr_in6 * server, uint32_t *mySeq) {
 	uint8_t pduBuf[HEADER_LEN + sizeof(uint32_t)];
 	
 	pduLen = createPdu(pduBuf, *mySeq, SREJ_FLAG, (uint8_t*)&srejSeq, sizeof(uint32_t));
-	sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+	sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
+	(*mySeq)++;
 }
 
-void unbufferSrej(FILE *output) {
+void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
+	// printf("\tUNBUFFER TIME~~~~~~\n"); //dd
+	// printWindowMeta(); //dd
+	// printWindow(); //dd
 	// unbuffers, writes, and frees each packet until end of buffer or next waiting on packet
 	pdu packet = NULL;
 	while((packet=unbuffer()) != NULL) {
-		fwrite(packet->payload, 1, packet->payLen, output);
+		printf("Buff Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
+		writeData(packet->payload, packet->payLen, output);
+		sendRR(packet->seqNum + 1, mySeq, bufSize);
 		freePDU(packet);
+		// printWindowMeta(); //dd
+		// printWindow(); //dd
 	}
 }
 
-void testConnection(int socketNum, struct sockaddr_in6 * server) {
-	printf("\t\tsocketNum: %d\n", socketNum); // dedd
+int bufferPacket(pdu packet) {
+	pdu toBuffer = NULL;
+	toBuffer = (pdu)malloc(sizeof(struct PduS));
+	memcpy(toBuffer, packet, sizeof(struct PduS));
+	return buffer(toBuffer);
+}
+
+void testConnection(struct sockaddr_in6 * server) {
 	// dd
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	char * ipString = NULL;
@@ -436,9 +446,9 @@ void testConnection(int socketNum, struct sockaddr_in6 * server) {
 		pduLen = createPdu(pduBuf, seqNum, DEBUG_FLAG, (uint8_t*)buffer, dataLen - 1); // -1 to remove null
 		// outputPDU(pduBuf, pduLen);
 	
-		sendtoErr(socketNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
+		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
 		
-		pduLen = safeRecvfrom(socketNum, pduBuf, MAXBUF, 0, (struct sockaddr *) server, &serverAddrLen);
+		pduLen = safeRecvfrom(sockNum, pduBuf, MAXBUF, 0, (struct sockaddr *) server, &serverAddrLen);
 		outputPDU(pduBuf, pduLen);
 		
 		// print out bytes received

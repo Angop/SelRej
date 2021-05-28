@@ -153,8 +153,10 @@ void transferData(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize
 	uint32_t seqNum = 0;
 
 	while (!feof(input)) {
-		sendNextPdu(socketNum, input, winSize, bufSize, client, seqNum);
-		seqNum++;
+		if (!isWindowFull()) {
+			sendNextPdu(socketNum, input, winSize, bufSize, client, seqNum);
+			seqNum++;
+		}
 
 		checkForRRs(input, socketNum, bufSize, client);
 
@@ -176,6 +178,7 @@ void sendNextPdu(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize,
 	// create next pdu
 	dataLen = getNextData(input, bufSize, dataBuf);
 	pduLen = createPdu(pduBuf, seqNum, DATA_FLAG, (uint8_t*)dataBuf, dataLen);
+	printf("Read %u bytes, sending %u byes\n", dataLen, pduLen); //dd
 
 	// send next pdu and update window
 	sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
@@ -187,7 +190,7 @@ void sendNextPdu(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize,
 uint16_t getNextData(FILE *input, uint16_t bufSize, char * dataBuf) {
 	// fills given character array with next data chunk from given file. Returns bytes of data read
 	uint16_t bytesRead = fread(dataBuf, 1, bufSize, input);
-	printf("Read %d bytes out of %u: %.*s\n", bytesRead, bufSize, bytesRead, dataBuf);
+	printf("Read %u bytes out of %u\n", bytesRead, bufSize); //dd
 	if (ferror(input)) {
 		perror("fread");
 		exit(EXIT_FAILURE);
@@ -209,7 +212,7 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 		if (interpPDU(&packet, respBuf, respLen)) {
 			if (packet.flag == RR_FLAG) {
 				memcpy(&rrSeq, packet.payload, sizeof(uint32_t));
-				rr(ntohl(rrSeq));
+				recvRR(ntohl(rrSeq));
 			}
 			else if (packet.flag == SREJ_FLAG) {
 				handleSrej(socketNum, client, bufSize, &packet);
@@ -221,6 +224,7 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 }
 
 void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pdu packet) {
+	printf("\n\tHANDLING SREJ ~~~~~~~~~~~~~~~~~~~~~\n");
 	// handles a recieved srej
 	pdu resendPacket = NULL;
 	int clientAddrLen = sizeof(*client);
@@ -233,7 +237,7 @@ void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pd
 	srejSeq = ntohl(srejSeq);
 	resendPacket = srej(srejSeq);
 
-	printf("\tHANDLING SREJ %d", srejSeq);
+	printf("\tHANDLING SREJ %d~~~~~~~~~~~~~~~~~~~~~\n\n", srejSeq);
 	if (resendPacket) {
 		pduLen = recreatePDUS(resendPacket, pduBuf);
 		sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
@@ -242,16 +246,13 @@ void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pd
 
 void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client) {
 	// TODO
-	int count = 0, respLen = 0, clientAddrLen = sizeof(*client);
+	int count = 0, respLen = 0, clientAddrLen = sizeof(*client), rrFound=0;
 	uint8_t respBuf[sizeof(uint32_t) + HEADER_LEN];
 	struct PduS packet;
 	uint32_t rrSeq = 0;
 	packet.flag = -1;
 
-	do {
-		if (packet.flag == SREJ_FLAG) {
-			handleSrej(socketNum, client, bufSize, &packet);
-		}
+	while (count < 10 && !rrFound) {
 		if (pollCall(1000) == -1) {
 			// if no response in a second, resend eof packet
 			resendLowest(socketNum, client);
@@ -259,8 +260,17 @@ void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 		}
 		else {
 			respLen = safeRecvfrom(socketNum, respBuf, sizeof(uint32_t) + HEADER_LEN, 0, (struct sockaddr *)client, &clientAddrLen);
+			if (interpPDU(&packet, respBuf, respLen)) {
+				// packet is not corrupt
+				if (packet.flag == SREJ_FLAG) {
+					handleSrej(socketNum, client, bufSize, &packet);
+				}
+				else if (packet.flag == RR_FLAG) {
+					rrFound = 1;
+				}
+			}
 		}
-	} while (count < 10 && interpPDU(&packet, respBuf, respLen) == 0 && packet.flag != RR_FLAG);
+	}
 
 	if (count >= 10) {
 		// timed out
@@ -270,7 +280,7 @@ void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 		exit(EXIT_FAILURE);
 	}
 	memcpy(&rrSeq, packet.payload, sizeof(uint32_t));
-	rr(ntohl(rrSeq));
+	recvRR(ntohl(rrSeq));
 	printf("Window open!\n");
 }
 
