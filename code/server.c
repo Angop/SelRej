@@ -99,6 +99,7 @@ FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct so
 	int clientAddrLen = sizeof(*client);
 	uint8_t pduBuf[MAX_PDU_LEN];
 	struct PduS packet;
+	packet.payload = NULL;
 	char infile[MAXBUF];
 	FILE *out = NULL;
 
@@ -115,6 +116,7 @@ FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct so
 	strncpy(infile, (char*)packet.payload + 6, packet.payLen - 6);
 	
 	out = setupResponse(socketNum, infile, client);
+	freePDU(&packet);
 	return out;
 }
 
@@ -126,6 +128,7 @@ FILE *setupResponse(int socketNum, char *infile, struct sockaddr_in6 *client) {
 	FILE *in = fopen(infile, "r");
 	uint8_t pduBuf[MAX_PDU_LEN], respBuf[MAX_PDU_LEN];
 	struct PduS packet;
+	packet.payload = NULL;
 	uint8_t payLoad = (in == NULL ? 0 : 1);
 
 	// create response then send
@@ -135,12 +138,15 @@ FILE *setupResponse(int socketNum, char *infile, struct sockaddr_in6 *client) {
 		// if filename is bad, just send once then give up
 		return NULL;
 	}
+	// wait on client ack
 	do {
+		freePDU(&packet);
 		if (pollCall(10000) == -1) {// wait 10 seconds max
 			return NULL;
 		}
 		respLen = safeRecvfrom(socketNum, respBuf, MAXBUF, 0, (struct sockaddr *)client, &clientAddrLen);
 	} while(interpPDU(&packet, respBuf, respLen) == 0 && packet.flag != SETUPRESP_FLAG); // if corrupt or invalid, keep listening
+	freePDU(&packet);
 
 	// send ack to client ack
 	pduLen = createPdu(pduBuf, 1, SETUPRESP_FLAG, &payLoad, 1);
@@ -150,7 +156,6 @@ FILE *setupResponse(int socketNum, char *infile, struct sockaddr_in6 *client) {
 
 void transferData(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize, struct sockaddr_in6 *client) {
 	// sends data packets to rcopy
-	// TODO
 	uint32_t seqNum = 0;
 
 	while (!feof(input)) {
@@ -206,6 +211,7 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 	int respLen = 0;
 	uint8_t respBuf[(bufSize < sizeof(uint32_t) ? sizeof(uint32_t) : bufSize)+ HEADER_LEN]; // room for at least an rr
 	struct PduS packet;
+	packet.payload = NULL;
 	uint32_t rrSeq = 0;
 
 	while (pollCall(0) != -1) {
@@ -220,6 +226,7 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 				handleSrej(socketNum, client, bufSize, &packet);
 			}
 		}
+		freePDU(&packet);
 		// otherwise its corrupt or invalid, ignore it
 	}
 	// no packets left to recv
@@ -251,10 +258,12 @@ void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 	int count = 0, respLen = 0, clientAddrLen = sizeof(*client), rrFound=0;
 	uint8_t respBuf[sizeof(uint32_t) + HEADER_LEN];
 	struct PduS packet;
+	packet.payload = NULL;
 	uint32_t rrSeq = 0;
 	packet.flag = -1;
 
 	while (count < 10 && !rrFound) {
+		freePDU(&packet);
 		if (pollCall(1000) == -1) {
 			// if no response in a second, resend eof packet
 			resendLowest(socketNum, client);
@@ -284,6 +293,7 @@ void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 	}
 	memcpy(&rrSeq, packet.payload, sizeof(uint32_t));
 	recvRR(ntohl(rrSeq));
+	freePDU(&packet);
 	// printf("Window open!\n");
 }
 
@@ -305,11 +315,14 @@ void processEof(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 	uint8_t respBuf[bufSize + HEADER_LEN];
 	int respLen = 0;
 	struct PduS packet;
+	packet.payload = NULL;
+	packet.flag = -1;
 
 	waitOnRRs(input, socketNum, bufSize, client);
 
 	sendEof(socketNum, client, mySeq++);
 	do {
+		freePDU(&packet);
 		if (pollCall(1000) == -1) {
 			// if no response in a second, resend eof packet
 			sendEof(socketNum, client, mySeq++);
@@ -327,6 +340,7 @@ void processEof(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 		freeWindow();
 		exit(EXIT_FAILURE);
 	}
+	freePDU(&packet);
 	// otherwise, successful transfer!
 }
 

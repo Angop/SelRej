@@ -88,6 +88,7 @@ int main (int argc, char *argv[]) {
 void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize) {
 	// establish connection: send filename/bufsize/winsize, recv data
 	struct PduS packet;
+	packet.payload = NULL;
 	// open output file
 	FILE *output = openOutput(to);
 
@@ -122,6 +123,7 @@ FILE *openOutput(char *to) {
 void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 	// TODO
 	struct PduS respPacket;
+	respPacket.payload = NULL;
 	getInitialResp(from, winSize, bufSize, &respPacket);
 
 	if (respPacket.payload[0] == 0) {
@@ -130,6 +132,7 @@ void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 		close(sockNum);
 		exit(EXIT_SUCCESS); // user error, so I consider it a success
 	}
+	freePDU(&respPacket);
 
 	ackInitialResp(packet);
 }
@@ -144,7 +147,6 @@ void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) 
 	uint8_t respBuf[MAX_PDU_LEN];
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int count = 0;
-	packet = NULL;
 
 	// create initial packet
 	winSize = htonl(winSize);
@@ -156,10 +158,7 @@ void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) 
 	pduLen = createPdu(pduBuf, 0, INITIAL_FLAG, (uint8_t*)payLoad, 6 + strlen(from) + 1);
 
 	do {
-		if (packet != NULL) {
-			freePDU(packet);
-			packet = NULL;
-		}
+		freePDU(packet);
 		// send filename/winsize/buffsize packet
 		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		
@@ -193,6 +192,7 @@ void ackInitialResp(pdu packet) {
 	pduLen = createPdu(pduBuf, 1, SETUPRESP_FLAG, NULL, 0);
 
 	do {
+		freePDU(packet);
 		// send filename/winsize/buffsize packet
 		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		
@@ -220,16 +220,19 @@ void recvDataLoop(pdu lastPacket, FILE *output, uint16_t bufSize) {
 	uint8_t lastFlag = 0;
 	int pollRes = 0;
 	struct PduS packet;
+	packet.payload = NULL;
 	uint32_t expectedSeq = 0, mySeq = 0;
 
-	// handle the last packet
+	// handle the last packet in case it was a data packet
 	processPacket(lastPacket, &expectedSeq, &mySeq, bufSize, output);
 	lastFlag = lastPacket->flag;
+	freePDU(lastPacket);
 
 	// handle each packet that arrives
 	while (lastFlag != EOF_FLAG && (pollRes=pollCall(10000)) != -1) {
 		if (recvPacket((pdu)&packet, bufSize)) {
 			lastFlag = processPacket((pdu)&packet, &expectedSeq, &mySeq, bufSize, output);
+			freePDU(&packet);
 		}
 	}
 	if (pollRes == -1) {
@@ -306,6 +309,7 @@ uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint1
 	int pollRes = 0;
 	uint8_t lastFlag = DATA_FLAG;
 	struct PduS curPacket;
+	curPacket.payload = NULL;
 
 	// printf("SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
 	sendSrejs(*expectedSeq, prevPacket->seqNum, mySeq);
@@ -321,6 +325,7 @@ uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint1
 	while (!isBufEmpty() && (pollRes=pollCall(10000)) != -1) {
 		if (recvPacket(&curPacket, bufSize)) {
 			lastFlag = processWaitingPacket(&curPacket, mySeq, bufSize, output);
+			freePDU(&curPacket);
 		}
 	}
 	if (pollRes == -1) {
@@ -427,6 +432,7 @@ void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
 		writeData(packet->payload, packet->payLen, output);
 		sendRR(packet->seqNum + 1, mySeq, bufSize);
 		freePDU(packet);
+		free(packet);
 		// printWindowMeta(); //dd
 		// printWindow(); //dd
 	}
@@ -435,8 +441,13 @@ void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
 
 int bufferPacket(pdu packet) {
 	pdu toBuffer = NULL;
+	uint8_t *payBuf = (uint8_t*)malloc(sizeof(uint8_t) * packet->payLen);
+
 	toBuffer = (pdu)malloc(sizeof(struct PduS));
 	memcpy(toBuffer, packet, sizeof(struct PduS));
+
+	memcpy(payBuf, packet->payload, packet->payLen);
+	toBuffer->payload = payBuf;
 	return buffer(toBuffer);
 }
 

@@ -49,6 +49,7 @@ void freeWindow() {
     for (i=0; i<win.winSize; i++) {
         if (win.queue[i] != NULL) {
             freePDU(win.queue[i]);
+            free(win.queue[i]);
         }
     }
     free(win.queue);
@@ -110,6 +111,7 @@ int recvRR(uint32_t seqNum) {
     oldLowSeq = win.queue[win.lower]->seqNum;
     for (i=oldLowSeq; i < seqNum; i++) {
         freePDU(win.queue[i % win.winSize]);
+        free(win.queue[i % win.winSize]);
         win.queue[i % win.winSize] = NULL;
     }
 
@@ -197,6 +199,7 @@ int buffer(pdu packet) {
             // same packet, take newer one
             // TODO: probably free older version??
             freePDU(win.queue[newCur]);
+            free(win.queue[newCur]);
             win.queue[newCur] = packet;
             return 1;
         }
