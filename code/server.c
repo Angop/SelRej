@@ -89,6 +89,7 @@ void handleClient(int socketNum) {
 	if (initWindow(winSize)) {
 		transferData(socketNum, input, winSize, bufSize, &client);
 	}
+	freeWindow();
 	fclose(input);
 }
 
@@ -161,7 +162,7 @@ void transferData(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize
 		checkForRRs(input, socketNum, bufSize, client);
 
 		if (isWindowFull()) {
-			printf("Window closed!\n");
+			// printf("Window closed!\n");
 			openWindow(input, socketNum, bufSize, client);
 		}
 	}
@@ -178,7 +179,7 @@ void sendNextPdu(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize,
 	// create next pdu
 	dataLen = getNextData(input, bufSize, dataBuf);
 	pduLen = createPdu(pduBuf, seqNum, DATA_FLAG, (uint8_t*)dataBuf, dataLen);
-	printf("Read %u bytes, sending %u byes\n", dataLen, pduLen); //dd
+	// printf("Read %u bytes, sending %u byes\n", dataLen, pduLen); //dd
 
 	// send next pdu and update window
 	sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
@@ -190,9 +191,10 @@ void sendNextPdu(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize,
 uint16_t getNextData(FILE *input, uint16_t bufSize, char * dataBuf) {
 	// fills given character array with next data chunk from given file. Returns bytes of data read
 	uint16_t bytesRead = fread(dataBuf, 1, bufSize, input);
-	printf("Read %u bytes out of %u\n", bytesRead, bufSize); //dd
+	// printf("Read %u bytes out of %u\n", bytesRead, bufSize); //dd
 	if (ferror(input)) {
 		perror("fread");
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
 	return bytesRead;
@@ -224,7 +226,7 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 }
 
 void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pdu packet) {
-	printf("\n\tHANDLING SREJ ~~~~~~~~~~~~~~~~~~~~~\n");
+	// printf("\n\tHANDLING SREJ ~~~~~~~~~~~~~~~~~~~~~\n"); //dd
 	// handles a recieved srej
 	pdu resendPacket = NULL;
 	int clientAddrLen = sizeof(*client);
@@ -237,7 +239,7 @@ void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pd
 	srejSeq = ntohl(srejSeq);
 	resendPacket = srej(srejSeq);
 
-	printf("\tHANDLING SREJ %d~~~~~~~~~~~~~~~~~~~~~\n\n", srejSeq);
+	// printf("\tHANDLING SREJ %d~~~~~~~~~~~~~~~~~~~~~\n\n", srejSeq); //dd
 	if (resendPacket) {
 		pduLen = recreatePDUS(resendPacket, pduBuf);
 		sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
@@ -277,11 +279,12 @@ void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 		fprintf(stderr, "Client timed out\n");
 		close(socketNum);
 		fclose(input);
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
 	memcpy(&rrSeq, packet.payload, sizeof(uint32_t));
 	recvRR(ntohl(rrSeq));
-	printf("Window open!\n");
+	// printf("Window open!\n");
 }
 
 void resendLowest(int socketNum, struct sockaddr_in6 *client) {
@@ -321,6 +324,7 @@ void processEof(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in
 		fprintf(stderr, "Client timed out\n");
 		close(socketNum);
 		fclose(input);
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
 	// otherwise, successful transfer!

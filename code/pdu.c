@@ -94,4 +94,5 @@ int recreatePDUS(pdu packet, uint8_t *pduBuf) {
 void freePDU(pdu packet) {
     // frees pdu struct
     free(packet->payload);
+    free(packet);
 }

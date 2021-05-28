@@ -71,7 +71,7 @@ int main (int argc, char *argv[]) {
 	uint16_t bufferSize = atoi(argv[4]); // TODO change to strtol and strtof
 	float errRate = atof(argv[5]);
 
-	printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate); //dd
+	// printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate); //dd
 	
 	sendErr_init(errRate, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_OFF);
 	
@@ -104,6 +104,7 @@ void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize) 
 	}
 
 	// cleanup
+	freeWindow();
 	fclose(output); // should I check the return value? dd
 }
 
@@ -143,6 +144,7 @@ void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) 
 	uint8_t respBuf[MAX_PDU_LEN];
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int count = 0;
+	packet = NULL;
 
 	// create initial packet
 	winSize = htonl(winSize);
@@ -154,6 +156,10 @@ void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) 
 	pduLen = createPdu(pduBuf, 0, INITIAL_FLAG, (uint8_t*)payLoad, 6 + strlen(from) + 1);
 
 	do {
+		if (packet != NULL) {
+			freePDU(packet);
+			packet = NULL;
+		}
 		// send filename/winsize/buffsize packet
 		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
 		
@@ -231,6 +237,7 @@ void recvDataLoop(pdu lastPacket, FILE *output, uint16_t bufSize) {
 		fprintf(stderr, "Server timed out\n");
 		close(sockNum);
 		fclose(output);
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
 }
@@ -277,9 +284,9 @@ uint8_t processDataPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, ui
 	}
 	else if (packet->seqNum == *expectedSeq) {
 		// seqNum is expected -> send new RR
-		printf("Norm Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
+		// printf("Norm Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
 		writeData(packet->payload, packet->payLen, output);
-		(*expectedSeq)++;
+		(*expectedSeq) = (*expectedSeq) + 1;
 		sendRR(*expectedSeq, mySeq, bufSize);
 		return DATA_FLAG;
 	}
@@ -290,28 +297,30 @@ uint8_t processDataPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, ui
 
 void writeData(uint8_t *data, uint16_t dataLen, FILE *output) {
 	uint16_t bytesWritten = fwrite(data, 1, dataLen, output);
-	printf(" ~~ wrote %d bytes\n", bytesWritten);
+	// printf(" ~~ wrote %d bytes\n", bytesWritten);
 }
 
-uint8_t handleSrej(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
+uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// TODO
 	// sends SREJ(s) and waits on missing packets
 	int pollRes = 0;
 	uint8_t lastFlag = DATA_FLAG;
+	struct PduS curPacket;
 
 	// printf("SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
-	sendSrejs(*expectedSeq, packet->seqNum, mySeq);
-	if (!bufferPacket(packet)) {
+	sendSrejs(*expectedSeq, prevPacket->seqNum, mySeq);
+	if (!bufferPacket(prevPacket)) {
 		fprintf(stderr, "Buffer error\n");
 		close(sockNum);
 		fclose(output);
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
 	// printf("\tPacket: %d buffered\n", packet->seqNum); //dd
 
 	while (!isBufEmpty() && (pollRes=pollCall(10000)) != -1) {
-		if (recvPacket((pdu)&packet, bufSize)) {
-			lastFlag = processWaitingPacket((pdu)&packet, mySeq, bufSize, output);
+		if (recvPacket(&curPacket, bufSize)) {
+			lastFlag = processWaitingPacket(&curPacket, mySeq, bufSize, output);
 		}
 	}
 	if (pollRes == -1) {
@@ -319,9 +328,11 @@ uint8_t handleSrej(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t 
 		fprintf(stderr, "Server timed out\n");
 		close(sockNum);
 		fclose(output);
+		freeWindow();
 		exit(EXIT_FAILURE);
 	}
-	*expectedSeq = lastPacket() + 1;
+	(*expectedSeq) = lastPacket() + 1;
+	// printf("END SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
 	return lastFlag;
 }
 
@@ -334,7 +345,7 @@ void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize) {
 	readySeq = htonl(readySeq);
 	pduLen = createPdu(pduBuf, *mySeq, RR_FLAG, (uint8_t*)(&readySeq), sizeof(uint32_t));
 	sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
-	(*mySeq)++;
+	(*mySeq) = (*mySeq) + 1;
 }
 
 void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
@@ -352,7 +363,7 @@ void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
 		i = htonl(i);
 		pduLen = createPdu(pduBuf, *mySeq, SREJ_FLAG, (uint8_t*)&i, sizeof(uint32_t));
 		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
-		(*mySeq)++;
+		(*mySeq) = (*mySeq) + 1;
 		i = ntohl(i);
 	}
 }
@@ -378,6 +389,7 @@ uint8_t processWaitingPacket(pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE
 			fprintf(stderr, "Buffer error\n");
 			close(sockNum);
 			fclose(output);
+			freeWindow();
 			exit(EXIT_FAILURE);
 		}
 		else if (bufRet == 2) {
@@ -401,7 +413,7 @@ void resendSrej(uint32_t *mySeq) {
 	
 	pduLen = createPdu(pduBuf, *mySeq, SREJ_FLAG, (uint8_t*)&srejSeq, sizeof(uint32_t));
 	sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) &serverS, serverAddrLen);
-	(*mySeq)++;
+	(*mySeq) = (*mySeq) + 1;
 }
 
 void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
@@ -411,13 +423,14 @@ void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
 	// unbuffers, writes, and frees each packet until end of buffer or next waiting on packet
 	pdu packet = NULL;
 	while((packet=unbuffer()) != NULL) {
-		printf("Buff Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
+		// printf("Buff Writing %u bytes from packet: %u", packet->payLen, packet->seqNum);
 		writeData(packet->payload, packet->payLen, output);
 		sendRR(packet->seqNum + 1, mySeq, bufSize);
 		freePDU(packet);
 		// printWindowMeta(); //dd
 		// printWindow(); //dd
 	}
+	// printf("\tEND UNBUFFER TIME~~~~~~\n"); //dd
 }
 
 int bufferPacket(pdu packet) {

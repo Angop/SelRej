@@ -45,6 +45,13 @@ int initWindow(int windowSize) {
 void freeWindow() {
     // frees the window and everything malloced inside
     // TODO
+    int i = 0;
+    for (i=0; i<win.winSize; i++) {
+        if (win.queue[i] != NULL) {
+            freePDU(win.queue[i]);
+        }
+    }
+    free(win.queue);
 }
 
 void printWindowMeta() {
@@ -103,7 +110,6 @@ int recvRR(uint32_t seqNum) {
     oldLowSeq = win.queue[win.lower]->seqNum;
     for (i=oldLowSeq; i < seqNum; i++) {
         freePDU(win.queue[i % win.winSize]);
-        free(win.queue[i % win.winSize]);
         win.queue[i % win.winSize] = NULL;
     }
 
