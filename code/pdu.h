@@ -19,8 +19,6 @@ struct PduS {
     uint32_t seqNum;
     uint16_t checksum;
     uint8_t flag;
-    uint32_t rr;
-    uint32_t srej;
     uint8_t * payload;
     uint16_t payLen;
 }__attribute__((packed));

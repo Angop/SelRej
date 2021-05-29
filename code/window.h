@@ -11,18 +11,18 @@
     #include "pdu.h"
 #endif
 
-int initWindow();          // initializes window for server or rcopy, returns 0 for failure, 1 for success
-void freeWindow();         // frees the window and everything malloced inside
+int initWindow();           // initializes window for server or rcopy, returns 0 for failure, 1 for success
+void freeWindow();          // frees the window and everything malloced inside
 void printWindowMeta();
 void printWindow();
 
 // SERVER RELATED FUNCTIONS
-int serverSent(pdu packet);// server sent this packet, return 1 on sucess, 0 on invalid send
-int recvRR(uint32_t seqNum);   // rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
-pdu srej(uint32_t seqNum); // rcopy rejected this seqNum, return the pdu to resend or null if its out of the window
-pdu getLow();              // server needs the lowest unacked packet, return pdu or null if none are unacked
-int isWindowFull();        // returns true on full window
-int isWindowEmpty();       // returns true on empty window
+int serverSent(pdu packet); // server sent this packet, return 1 on sucess, 0 on invalid send
+int recvRR(uint32_t seqNum);// rcopy is ready for this seqNum, return 1 on sucess, 0 on invalid seqNum
+pdu srej(uint32_t seqNum);  // rcopy rejected this seqNum, return the pdu to resend or null if its out of the window
+pdu getLow();               // server needs the lowest unacked packet, return pdu or null if none are unacked
+int isWindowFull();         // returns true on full window
+int isWindowEmpty();        // returns true on empty window
 
 // RCOPY RELATED FUNCTIONS
 int skip(uint32_t seqNum);  // identifies seqNum as waiting on packet. Returns 0 on failure, 1 on success

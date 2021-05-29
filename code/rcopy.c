@@ -1,6 +1,5 @@
 // Angela Kerlin
 // Client side udp
-// Original code from Hugh Smith 4/1/2017
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +31,7 @@
 #define DEBUG_FLAG 10
 
 int sockNum = 0;
-struct sockaddr_in6 serverS;		// Supports 4 and 6 but requires IPv6 struct
+struct sockaddr_in6 serverS;
 
 
 void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize);
@@ -62,19 +61,17 @@ int checkArgs(int argc, char * argv[]);
 
 int main (int argc, char *argv[]) {
 	int portNumber = checkArgs(argc, argv);
-	char *from = argv[1]; // CHECK FOR EXCESSIVELY LONG FILENAMES TODO
+	char *from = argv[1];
 	char *to = argv[2];
-	uint32_t windowSize = atoi(argv[3]); // TODO change to strtol and strtof
-	uint16_t bufferSize = atoi(argv[4]); // TODO change to strtol and strtof
+	uint32_t windowSize = atoi(argv[3]);
+	uint16_t bufferSize = atoi(argv[4]);
 	float errRate = atof(argv[5]);
+	// printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate);
 
-	// printf("from: %s to: %s winSize: %u bufSize: %u errRate: %f\n", from, to, windowSize, bufferSize, errRate); //dd
-	
 	sendErr_init(errRate, DROP_ON, FLIP_ON, DEBUG_ON, RSEED_OFF);
 	
 	sockNum = setupUdpClientToServer(&serverS, argv[6], portNumber);
 	
-	// talkToServer(socketNum, &server);
 	handleConnection(from, to, windowSize, bufferSize);
 	
 	close(sockNum);
@@ -94,8 +91,6 @@ void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize) 
 	addToPollSet(sockNum);
 	initExchange(from, winSize, bufSize, &packet);
 
-	// TODO: close and reopen socket to switch to server child?
-
 	// recieve data packets
 	if (initWindow(winSize)) {
 		recvDataLoop(&packet, output, bufSize);
@@ -103,10 +98,11 @@ void handleConnection(char *from, char *to, uint32_t winSize, uint16_t bufSize) 
 
 	// cleanup
 	freeWindow();
-	fclose(output); // should I check the return value? dd
+	fclose(output);
 }
 
 FILE *openOutput(char *to) {
+	// opens the output file
 	FILE *out = fopen(to, "w");
 	if (out == NULL) {
 		printf("Invalid output file provided\n");
@@ -118,7 +114,7 @@ FILE *openOutput(char *to) {
 }
 
 void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
-	// TODO
+	// handles the initial filename/win size/buf size exchange
 	struct PduS respPacket;
 	respPacket.payload = NULL;
 	getInitialResp(from, winSize, bufSize, &respPacket);
@@ -136,12 +132,11 @@ void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 
 void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) {
 	// handles initial filename/buf/win exchange and recieves a response
-	// TODO: double check all len maxes
-	uint8_t payLoad[MAX_PDU_LEN];
+	uint8_t payLoad[bufSize];
 	uint16_t pduLen = 0; 
-	uint8_t pduBuf[MAX_PDU_LEN];
+	uint8_t pduBuf[bufSize + HEADER_LEN];
 	uint16_t respLen = 0; 
-	uint8_t respBuf[MAX_PDU_LEN];
+	uint8_t respBuf[bufSize + HEADER_LEN];
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int count = 0;
 
@@ -161,7 +156,7 @@ void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet) 
 		
 		// wait for valid response
 		if (pollCall(1000) != -1) {
-			respLen = safeRecvfrom(sockNum, respBuf, MAXBUF, 0, (struct sockaddr *) &serverS, &serverAddrLen);
+			respLen = safeRecvfrom(sockNum, respBuf, bufSize + HEADER_LEN, 0, (struct sockaddr *) &serverS, &serverAddrLen);
 		}
 		count++;
 		// TODO: close and reopen socket to switch to server child?
@@ -213,7 +208,7 @@ void ackInitialResp(pdu packet) {
 }
 
 void recvDataLoop(pdu lastPacket, FILE *output, uint16_t bufSize) {
-	// TODO
+	// Recieves and writes all data from transfer then handles EOF flag
 	uint8_t lastFlag = 0;
 	int pollRes = 0;
 	struct PduS packet;
@@ -265,7 +260,7 @@ uint8_t processPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16
 }
 
 uint8_t processEof(uint32_t mySeq) {
-	// sends a eof ack
+	// sends an eof ack
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int pduLen = 0;
 	uint8_t pduBuf[HEADER_LEN];
@@ -301,14 +296,12 @@ void writeData(uint8_t *data, uint16_t dataLen, FILE *output) {
 }
 
 uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
-	// TODO
 	// sends SREJ(s) and waits on missing packets
 	int pollRes = 0;
 	uint8_t lastFlag = DATA_FLAG;
 	struct PduS curPacket;
 	curPacket.payload = NULL;
 
-	// printf("SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
 	sendSrejs(*expectedSeq, prevPacket->seqNum, mySeq);
 	if (!bufferPacket(prevPacket)) {
 		fprintf(stderr, "Buffer error\n");
@@ -317,7 +310,6 @@ uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint1
 		freeWindow();
 		exit(EXIT_FAILURE);
 	}
-	// printf("\tPacket: %d buffered\n", packet->seqNum); //dd
 
 	while (!isBufEmpty() && (pollRes=pollCall(10000)) != -1) {
 		if (recvPacket(&curPacket, bufSize)) {
@@ -334,7 +326,6 @@ uint8_t handleSrej(pdu prevPacket, uint32_t *expectedSeq, uint32_t *mySeq, uint1
 		exit(EXIT_FAILURE);
 	}
 	(*expectedSeq) = lastPacket() + 1;
-	// printf("END SREJ TIME ~~~~~~~~~~~~~~~~~~~\n"); //dd
 	return lastFlag;
 }
 
@@ -342,7 +333,7 @@ void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize) {
 	// sends RR readySeq to server
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	int pduLen = 0;
-	uint8_t pduBuf[bufSize + HEADER_LEN];
+	uint8_t pduBuf[HEADER_LEN + sizeof(uint32_t)];
 
 	readySeq = htonl(readySeq);
 	pduLen = createPdu(pduBuf, *mySeq, RR_FLAG, (uint8_t*)(&readySeq), sizeof(uint32_t));
@@ -352,7 +343,6 @@ void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize) {
 
 void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
 	// sends selective rejects for each missing packet and skips in buffer
-	// TODO
 	int pduLen = 0;
 	int serverAddrLen = sizeof(struct sockaddr_in6);
 	uint32_t i = 0;
@@ -360,7 +350,6 @@ void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
 
 	for (i=expectedSeq; i < recvSeq; i++) {
 		// notify buffer of each missing seqNum
-		// printf("\tSKIP: %d\n", i); //dd
 		skip(i);
 		i = htonl(i);
 		pduLen = createPdu(pduBuf, *mySeq, SREJ_FLAG, (uint8_t*)&i, sizeof(uint32_t));
@@ -372,7 +361,6 @@ void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq) {
 
 uint8_t processWaitingPacket(pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE *output) {
 	// Processes data packets while waiting on a SREJ packet
-	// TODO
 	int bufRet = 0;
 	if (packet->flag != DATA_FLAG) {
 		return packet->flag;
@@ -386,7 +374,6 @@ uint8_t processWaitingPacket(pdu packet, uint32_t *mySeq, uint16_t bufSize, FILE
 	if (packet->seqNum >= firstPacket()) {
 		// seqNum is in expected range (or greater than expected and already SREJed) -> buffer it
 		bufRet = bufferPacket(packet);
-		// printf("\tPacket: %d buffered Ret: %d\n", packet->seqNum, bufRet); //dd
 		if (bufRet == 0) {
 			fprintf(stderr, "Buffer error\n");
 			close(sockNum);
@@ -419,9 +406,6 @@ void resendSrej(uint32_t *mySeq) {
 }
 
 void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
-	// printf("\tUNBUFFER TIME~~~~~~\n"); //dd
-	// printWindowMeta(); //dd
-	// printWindow(); //dd
 	// unbuffers, writes, and frees each packet until end of buffer or next waiting on packet
 	pdu packet = NULL;
 	while((packet=unbuffer()) != NULL) {
@@ -430,10 +414,7 @@ void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize) {
 		sendRR(packet->seqNum + 1, mySeq, bufSize);
 		freePDU(packet);
 		free(packet);
-		// printWindowMeta(); //dd
-		// printWindow(); //dd
 	}
-	// printf("\tEND UNBUFFER TIME~~~~~~\n"); //dd
 }
 
 int bufferPacket(pdu packet) {
@@ -448,9 +429,8 @@ int bufferPacket(pdu packet) {
 	return buffer(toBuffer);
 }
 
-int checkArgs(int argc, char * argv[])
-{
-	/* check command line arguments  */
+int checkArgs(int argc, char * argv[]) {
+	// check command line arguments
 	if (argc != 8)
 	{
 		printf("usage: %s from-file to-file window-size buffer-size error-rate host-name port-number \n", argv[0]);
@@ -460,7 +440,7 @@ int checkArgs(int argc, char * argv[])
 	// Checks args and returns port number
 	int portNumber = 0;
 
-	portNumber = atoi(argv[7]); // TODO change to strtol
+	portNumber = atoi(argv[7]);
 		
 	return portNumber;
 }

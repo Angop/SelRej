@@ -68,10 +68,6 @@ int interpPDU(pdu packet, uint8_t * apdu, uint16_t pduLength) {
     memcpy(&packet->checksum, apdu + 4, sizeof(uint16_t));
     memcpy(&packet->flag, apdu + 6, sizeof(uint8_t));
 
-    // TODO: handle RR and SREJ flags, or even remove them
-    packet->rr = 0;
-    packet->srej = 0;
-
     if ((packet->payload = (uint8_t *)malloc(pduLength - HEADER_LEN)) == NULL) {
         perror("malloc");
         exit(EXIT_FAILURE);

@@ -11,8 +11,8 @@ struct Window {
     int lower;           // the lowest unacked pdu's index
     int upper;           // upper bound of window
     int current;         // index of the last sent packet
-    uint32_t lastSeq;    // FOR RCOPY ONLY last seqNum
-    uint32_t firstSeq;   // FOR RCOPY ONLY first seqNum
+    uint32_t lastSeq;    // FOR RCOPY ONLY last seqNum in queue
+    uint32_t firstSeq;   // FOR RCOPY ONLY first seqNum in queue
 }__attribute__((packed));
 
 // GLOBAL VARIABLE
@@ -44,7 +44,6 @@ int initWindow(int windowSize) {
 
 void freeWindow() {
     // frees the window and everything malloced inside
-    // TODO
     int i = 0;
     for (i=0; i<win.winSize; i++) {
         if (win.queue[i] != NULL) {
@@ -79,7 +78,6 @@ void printWindow() {
 
 // SERVER RELATED FUNCTIONS
 int serverSent(pdu packet) {
-    // TODO SHOULD I MALLOC PACKET HERE? or assume it was malloced before added here?
     // server sent this packet, return 1 on sucess, 0 on invalid send
     if (isWindowFull()) {
         // window was full, packet should not have been sent
@@ -197,7 +195,6 @@ int buffer(pdu packet) {
         // attempted to overwrite an existing packet in queue
         if (packet->seqNum == win.queue[newCur]->seqNum) {
             // same packet, take newer one
-            // TODO: probably free older version??
             freePDU(win.queue[newCur]);
             free(win.queue[newCur]);
             win.queue[newCur] = packet;

@@ -1,6 +1,6 @@
 // Angela Kerlin
 // Server side - UDP Code
-// Orignal code from Hugh Smith	4/1/2017
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -26,8 +26,6 @@
 #define MAXBUF 1400
 #define MAX_PDU_LEN 1407
 #define DEBUG_FLAG 10
-
-// TODO: go through and verify pdu buf is valid (should rarely be MAX_PDU_LEN)
 
 void waitForClients(int socketNum);
 int forkChild();
@@ -81,8 +79,7 @@ void waitForClients(int socketNum) {
 		forked = forkChild();
 	}
 	close(socketNum); // child does not need server socket
-	// create client socket
-	socketNum = udpServerSetup(0);
+	socketNum = udpServerSetup(0); // create client specific socket
 	handleClient(&client, socketNum, pduBuf, pduLen);
 	close(socketNum);
 }
@@ -92,18 +89,18 @@ int forkChild() {
     pid_t pid;
 
     if ((forkr=fork()) == 0) {
-       /* child */
-       printf("This is the child, pid %d\n", (pid=getpid()));
-       return 0;
+        /* child */
+        // printf("This is the child, pid %d\n", (pid=getpid()));
+        return 0;
     }
     else if (forkr == -1) {
-       perror("fork\n");
-       exit(1);
+        perror("fork\n");
+        exit(1);
     }
     else {
-       /* parent */
-       printf("This is the parent, pid %d\n", (pid=getpid()));
-	   return 1;
+    	/* parent */
+        // printf("This is the parent, pid %d\n", (pid=getpid()));
+	    return 1;
     }
 }
 
@@ -259,7 +256,6 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 }
 
 void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pdu packet) {
-	// printf("\n\tHANDLING SREJ ~~~~~~~~~~~~~~~~~~~~~\n"); //dd
 	// handles a recieved srej
 	pdu resendPacket = NULL;
 	int clientAddrLen = sizeof(*client);
@@ -272,7 +268,6 @@ void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pd
 	srejSeq = ntohl(srejSeq);
 	resendPacket = srej(srejSeq);
 
-	// printf("\tHANDLING SREJ %d~~~~~~~~~~~~~~~~~~~~~\n\n", srejSeq); //dd
 	if (resendPacket) {
 		pduLen = recreatePDUS(resendPacket, pduBuf);
 		sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
