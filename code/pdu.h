@@ -1,6 +1,15 @@
 #include <netinet/in.h>
 
 #define HEADER_LEN 7
+#define SETUPRESP_FLAG 2
+#define DATA_FLAG 3
+#define RR_FLAG 5
+#define SREJ_FLAG 6
+#define INITIAL_FLAG 7
+#define INITIALRESP_FLAG 8
+#define EOF_FLAG 9
+#define ACKEOF_FLAG 10
+
 int createPdu(uint8_t *pduBuf, uint32_t seqNum, uint8_t flag, uint8_t *payload, uint16_t payLen);
 void outputPDU(uint8_t * aPDU, int pduLength);
 

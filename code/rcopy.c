@@ -26,7 +26,6 @@
 #endif
 #include "window.h"
 #include "pollLib.h"
-#include "shared.h"
 
 #define MAXBUF 1400
 #define MAX_PDU_LEN 1407
@@ -41,14 +40,13 @@ FILE *openOutput(char *to);
 void initExchange(char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
 void getInitialResp(char *from, uint32_t winSize, uint16_t bufSize, pdu packet);
 void ackInitialResp(pdu packet);
-void recvDataLoop(pdu packet, FILE *output, uint16_t bufSize);
 
-// recvDataLoop helpers
+void recvDataLoop(pdu packet, FILE *output, uint16_t bufSize);
 int recvPacket(pdu packet, uint16_t bufSize);
 uint8_t processPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
-uint8_t processEof(uint32_t mySeq);
 uint8_t processDataPacket(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
 void writeData(uint8_t *data, uint16_t dataLen, FILE *output);
+
 uint8_t handleSrej(pdu packet, uint32_t *expectedSeq, uint32_t *mySeq, uint16_t bufSize, FILE *output);
 void sendRR(uint32_t readySeq, uint32_t *mySeq, uint16_t bufSize);
 void sendSrejs(uint32_t expectedSeq, uint32_t recvSeq, uint32_t *mySeq);
@@ -57,10 +55,9 @@ void resendSrej(uint32_t *mySeq);
 void unbufferSrej(FILE *output, uint32_t *mySeq, uint32_t bufSize);
 int bufferPacket(pdu packet);
 
-int checkArgs(int argc, char * argv[]);
+uint8_t processEof(uint32_t mySeq);
 
-void testConnection();
-int readFromStdin(char * buffer);
+int checkArgs(int argc, char * argv[]);
 
 
 int main (int argc, char *argv[]) {
@@ -451,63 +448,6 @@ int bufferPacket(pdu packet) {
 	return buffer(toBuffer);
 }
 
-void testConnection(struct sockaddr_in6 * server) {
-	// dd
-	int serverAddrLen = sizeof(struct sockaddr_in6);
-	char * ipString = NULL;
-	uint16_t seqNum = 0;
-	int dataLen = 0; 
-	char buffer[MAXBUF+1];
-	int pduLen = 0; 
-	uint8_t pduBuf[MAX_PDU_LEN];
-	
-	buffer[0] = '\0';
-	while (buffer[0] != '.')
-	{
-		dataLen = readFromStdin(buffer);
-
-		// printf("Sending: %s with len: %d\n", buffer,dataLen);
-		pduLen = createPdu(pduBuf, seqNum, DEBUG_FLAG, (uint8_t*)buffer, dataLen - 1); // -1 to remove null
-		// outputPDU(pduBuf, pduLen);
-	
-		sendtoErr(sockNum, pduBuf, pduLen, 0, (struct sockaddr *) server, serverAddrLen);
-		
-		pduLen = safeRecvfrom(sockNum, pduBuf, MAXBUF, 0, (struct sockaddr *) server, &serverAddrLen);
-		outputPDU(pduBuf, pduLen);
-		
-		// print out bytes received
-		ipString = ipAddressToString(server);
-		printf("Server with ip: %s and port %d said it received %s\n", ipString, ntohs(server->sin6_port), buffer);
-
-		seqNum++;
-	}
-}
-
-int readFromStdin(char * buffer)
-{
-	char aChar = 0;
-	int inputLen = 0;        
-	
-	// Important you don't input more characters than you have space 
-	buffer[0] = '\0';
-	printf("Enter data: ");
-	while (inputLen < (MAXBUF - 1) && aChar != '\n')
-	{
-		aChar = getchar();
-		if (aChar != '\n')
-		{
-			buffer[inputLen] = aChar;
-			inputLen++;
-		}
-	}
-	
-	// Null terminate the string
-	buffer[inputLen] = '\0';
-	inputLen++;
-	
-	return inputLen;
-}
-
 int checkArgs(int argc, char * argv[])
 {
 	/* check command line arguments  */
@@ -524,8 +464,3 @@ int checkArgs(int argc, char * argv[])
 		
 	return portNumber;
 }
-
-
-
-
-

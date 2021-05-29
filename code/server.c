@@ -22,7 +22,6 @@
 #endif
 #include "window.h"
 #include "pollLib.h"
-#include "shared.h"
 
 #define MAXBUF 1400
 #define MAX_PDU_LEN 1407
@@ -31,9 +30,12 @@
 // TODO: go through and verify pdu buf is valid (should rarely be MAX_PDU_LEN)
 
 void waitForClients(int socketNum);
-void handleClient(int socketNum);
-FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct sockaddr_in6 *client);
+int forkChild();
+void handleClient(struct sockaddr_in6 *client,int socketNum, uint8_t *pduBuf, uint16_t pduLen);
+
+FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct sockaddr_in6 *client, uint8_t *pduBuf, uint16_t pduLen);
 FILE *setupResponse(int socketNum, char *infile, struct sockaddr_in6 *client);
+
 void transferData(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize, struct sockaddr_in6 *client);
 void sendNextPdu(int socketNum, FILE *input, uint32_t winSize, uint16_t bufSize, struct sockaddr_in6 *client, uint32_t seqNum);
 uint16_t getNextData(FILE *input, uint16_t bufSize, char * dataBuf);
@@ -41,14 +43,13 @@ void checkForRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_i
 void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pdu packet);
 void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client);
 void resendLowest(int socketNum, struct sockaddr_in6 *client);
+
 void waitOnRRs(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client);
 void sendEof(int socketNum, struct sockaddr_in6 *client, uint32_t mySeq);
 void processEof(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client, uint32_t seqNum);
 
 int checkArgs(int argc, char *argv[], float *errRate);
 
-void testSendToFile (FILE *output, char *buf, uint16_t bufLen);
-void testConnection(int socketNum);
 
 int main (int argc, char *argv[]) { 
 	int socketNum = 0;				
@@ -62,49 +63,74 @@ int main (int argc, char *argv[]) {
 
 	waitForClients(socketNum);
 
-	close(socketNum);
-	
 	return 0;
 }
 
 void waitForClients(int socketNum) {
+	struct sockaddr_in6 client;
+	int clientAddrLen = sizeof(client);
+	int forked = 1;
+	int pduLen = 0; 
+	uint8_t pduBuf[MAX_PDU_LEN];
 	setupPollSet();
 	addToPollSet(socketNum);
-	// would be in a while loop to fork children, break if res = 0 I guess?
-	pollCall(-1);
-	handleClient(socketNum);
+
+	// while loop to fork children
+	while (forked != 0) {
+		pduLen = safeRecvfrom(socketNum, pduBuf, MAXBUF, 0, (struct sockaddr *) &client, &clientAddrLen);
+		forked = forkChild();
+	}
+	close(socketNum); // child does not need server socket
+	// create client socket
+	socketNum = udpServerSetup(0);
+	handleClient(&client, socketNum, pduBuf, pduLen);
+	close(socketNum);
 }
 
-void handleClient(int socketNum) {
-	// TODO: fork here?
-	struct sockaddr_in6 client;
+int forkChild() {
+    pid_t forkr;
+    pid_t pid;
+
+    if ((forkr=fork()) == 0) {
+       /* child */
+       printf("This is the child, pid %d\n", (pid=getpid()));
+       return 0;
+    }
+    else if (forkr == -1) {
+       perror("fork\n");
+       exit(1);
+    }
+    else {
+       /* parent */
+       printf("This is the parent, pid %d\n", (pid=getpid()));
+	   return 1;
+    }
+}
+
+void handleClient(struct sockaddr_in6 *client, int socketNum, uint8_t *pduBuf, uint16_t pduLen) {
 	FILE *input = NULL;
 	uint32_t winSize = 0;
 	uint16_t bufSize = 0;
 
-	if ((input=handleSetup(socketNum, &winSize, &bufSize, &client)) == NULL) {
+	if ((input=handleSetup(socketNum, &winSize, &bufSize, client, pduBuf, pduLen)) == NULL) {
 		return;
 	}
 
 	if (initWindow(winSize)) {
-		transferData(socketNum, input, winSize, bufSize, &client);
+		transferData(socketNum, input, winSize, bufSize, client);
 	}
 	freeWindow();
 	fclose(input);
 }
 
-FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct sockaddr_in6 *client) {
+FILE *handleSetup(int socketNum, uint32_t *winSize, uint16_t *bufSize, struct sockaddr_in6 *client, uint8_t *pduBuf, uint16_t pduLen) {
 	// handles setup phase of transfer and sets winSize and bufSize. Returns fd or -1 on failure
-	int pduLen = 0; 
-	int clientAddrLen = sizeof(*client);
-	uint8_t pduBuf[MAX_PDU_LEN];
 	struct PduS packet;
 	packet.payload = NULL;
 	char infile[MAXBUF];
 	FILE *out = NULL;
 
 	// recv the client's packet
-	pduLen = safeRecvfrom(socketNum, pduBuf, MAXBUF, 0, (struct sockaddr *)client, &clientAddrLen);
 	if (!interpPDU(&packet, pduBuf, pduLen) || packet.flag != INITIAL_FLAG) {
 		// packet is corrupt or invalid
 		return NULL;
@@ -254,7 +280,7 @@ void handleSrej(int socketNum, struct sockaddr_in6 *client, uint16_t bufSize, pd
 }
 
 void openWindow(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client) {
-	// TODO
+	// forces the window open
 	int count = 0, respLen = 0, clientAddrLen = sizeof(*client), rrFound=0;
 	uint8_t respBuf[sizeof(uint32_t) + HEADER_LEN];
 	struct PduS packet;
@@ -309,7 +335,7 @@ void resendLowest(int socketNum, struct sockaddr_in6 *client) {
 }
 
 void processEof(FILE *input, int socketNum, uint16_t bufSize, struct sockaddr_in6 *client, uint32_t mySeq) {
-	// TODO
+	// closes the connection
 	int clientAddrLen = sizeof(*client);
 	int count = 0;
 	uint8_t respBuf[bufSize + HEADER_LEN];
@@ -358,40 +384,6 @@ void sendEof(int socketNum, struct sockaddr_in6 *client, uint32_t mySeq) {
 
 	pduLen = createPdu(pduBuf, mySeq, EOF_FLAG, NULL, 0);
 	sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *)client, clientAddrLen);
-}
-
-void testSendToFile (FILE *output, char *buf, uint16_t bufLen) {
-	// test writing to file
-	fwrite(buf, 1, bufLen, output);
-}
-
-void testConnection(int socketNum) {
-	// dd
-	int dataLen = 0; 
-	char buffer[MAXBUF + 1];	  
-	struct sockaddr_in6 client;		
-	int clientAddrLen = sizeof(client);	
-	int pduLen = 0; 
-	uint8_t pduBuf[MAX_PDU_LEN];
-	uint16_t seqNum = 0;
-
-	
-	buffer[0] = '\0';
-	while (buffer[0] != '.') {
-		dataLen = safeRecvfrom(socketNum, buffer, MAXBUF, 0, (struct sockaddr *) &client, &clientAddrLen);
-	
-		printf("Received message from client with ");
-		printIPInfo(&client);
-		// printf(" Len: %d \'%s\'\n", dataLen, buffer);
-		outputPDU((uint8_t*)buffer, dataLen);
-
-		// just for fun send back to client number of bytes received
-		sprintf(buffer, "bytes: %d", dataLen);
-		pduLen = createPdu(pduBuf, seqNum, DEBUG_FLAG, (uint8_t*)buffer, strlen(buffer));
-		sendtoErr(socketNum, pduBuf, pduLen , 0, (struct sockaddr *) & client, clientAddrLen);
-
-		seqNum++;
-	}
 }
 
 int checkArgs(int argc, char *argv[], float *errRate) {
